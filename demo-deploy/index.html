@@ -510,17 +510,26 @@ async function startSearch() {
   try {
     // ── ШАГ 1: ПОИСК НА hh.kz ──────────────────────────────
     setLoadingStep(0, 'active');
-    const queries = [currentAnalysis.position, ...(currentAnalysis.search_synonyms || []).slice(0, 2)];
+    // Передаём полное название + синонимы + отдельные слова из должности
+    const posWords = currentAnalysis.position
+      .split(/[\s,\/\-–—]+/)
+      .map(w => w.trim())
+      .filter(w => w.length >= 3);
+    const allQueries = [
+      currentAnalysis.position,
+      ...(currentAnalysis.search_synonyms || []).slice(0, 2),
+      ...posWords,
+    ].filter(Boolean);
 
     const r = await fetch('/api/hh-search', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        query: queries,
+        query: allQueries,
         cookie: HH_COOKIE,
         salary_from: currentAnalysis.salary_from || null,
         area: '160',
-        limit: 20,
+        limit: 30,
       }),
     });
     const data = await r.json();
