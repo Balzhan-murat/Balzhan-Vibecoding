@@ -851,7 +851,10 @@ async function callClaude(prompt, maxTokens=1500) {
     throw new Error(err.error?.message || `HTTP ${res.status}`);
   }
   const data = await res.json();
-  return data.content[0].text.trim();
+  let text = data.content[0].text.trim();
+  // Strip markdown code fences if present: ```json ... ``` or ``` ... ```
+  text = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+  return text;
 }
 
 // ============================================================
