@@ -454,7 +454,7 @@ async function analyzeVacancy() {
 ${text}`;
 
     const res = await callClaude(prompt);
-    currentAnalysis = JSON.parse(res);
+    currentAnalysis = safeParseArray(res);
     currentAnalysis._vacancyText = text;
     renderAnalysis(currentAnalysis);
     document.getElementById('sessionTitle').value = currentAnalysis.position + ' — ' + new Date().toLocaleDateString('ru-RU',{month:'long',year:'numeric'});
@@ -604,7 +604,7 @@ ${JSON.stringify(batch)}
 rec: green(ms≥80), yellow(60-79), red(<60).`;
 
   const raw = await callClaude(prompt, 3000);
-  const scores = JSON.parse(raw);
+  const scores = safeParseArray(raw);
   const scoreMap = {};
   scores.forEach(s => { scoreMap[s.i] = s; });
 
@@ -634,7 +634,7 @@ async function generateDemoCandidates() {
 Казахские и русские имена.`;
 
   const raw = await callClaude(prompt, 4000);
-  return JSON.parse(raw).map(c => ({
+  return safeParseArray(raw).map(c => ({
     full_name: c.n||c.full_name||'Кандидат', position: c.pos||c.position||'',
     city: c.city||'', experience_years: c.exp||0, salary_expected: c.sal||0,
     skills: c.skills||[], hh_url: null,
@@ -850,7 +850,7 @@ async function generateQuestionsFor(idx) {
 Риски: ${(c.cons||[]).join(', ')}`;
 
     const res = await callClaude(prompt, 1000);
-    c.interview_questions = JSON.parse(res);
+    c.interview_questions = safeParseArray(res);
     // Update in original array
     const origIdx = currentCandidates.findIndex(x=>x.full_name===c.full_name);
     if (origIdx >= 0) currentCandidates[origIdx].interview_questions = c.interview_questions;
@@ -957,10 +957,7 @@ function showToast(msg, type='success') {
 async function callClaude(prompt, maxTokens=1500) {
   const res = await fetch('/api/claude', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': API_KEY,
-    },
+    headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
     body: JSON.stringify({
       model: 'claude-sonnet-4-6',
       max_tokens: maxTokens,
@@ -973,9 +970,46 @@ async function callClaude(prompt, maxTokens=1500) {
   }
   const data = await res.json();
   let text = data.content[0].text.trim();
-  // Strip markdown code fences if present: ```json ... ``` or ``` ... ```
   text = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
   return text;
+}
+
+// Robust JSON array parser — recovers truncated arrays by keeping only complete objects
+function safeParseArray(raw) {
+  // 1. Try normal parse first
+  try { return JSON.parse(raw); } catch (_) {}
+
+  // 2. Find the opening bracket
+  const start = raw.indexOf('[');
+  if (start === -1) throw new Error('Нет JSON массива в ответе');
+
+  // 3. Walk through and collect complete objects
+  const items = [];
+  let depth = 0, inStr = false, escape = false, objStart = -1;
+
+  for (let i = start + 1; i < raw.length; i++) {
+    const ch = raw[i];
+
+    if (escape) { escape = false; continue; }
+    if (ch === '\\' && inStr) { escape = true; continue; }
+    if (ch === '"') { inStr = !inStr; continue; }
+    if (inStr) continue;
+
+    if (ch === '{') {
+      if (depth === 0) objStart = i;
+      depth++;
+    } else if (ch === '}') {
+      depth--;
+      if (depth === 0 && objStart !== -1) {
+        const chunk = raw.slice(objStart, i + 1);
+        try { items.push(JSON.parse(chunk)); } catch (_) {}
+        objStart = -1;
+      }
+    }
+  }
+
+  if (items.length === 0) throw new Error('Не удалось извлечь объекты из ответа');
+  return items;
 }
 
 // ============================================================
