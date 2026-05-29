@@ -1,0 +1,875 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Виртуальный рекрутер — QAZAQ-ASTYQ GROUP</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = {
+  theme: {
+    extend: {
+      colors: {
+        brand: { 50:'#EEF2FF', 100:'#E0E7FF', 500:'#1E3A5F', 600:'#162D4A', 700:'#0E1F35' }
+      }
+    }
+  }
+}
+</script>
+<style>
+  body { font-family: 'Segoe UI', sans-serif; }
+  .fade-in { animation: fadeIn .4s ease; }
+  @keyframes fadeIn { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:none; } }
+  .spin { animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .score-ring { transition: stroke-dashoffset .8s ease; }
+  .pulse { animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
+  textarea:focus, input:focus { outline: none; box-shadow: 0 0 0 3px rgba(30,58,95,.2); }
+</style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+
+<!-- ========== SETTINGS MODAL ========== -->
+<div id="settingsModal" class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center hidden">
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-8 fade-in">
+    <h2 class="text-xl font-bold text-gray-900 mb-1">⚙️ Настройки API</h2>
+    <p class="text-sm text-gray-500 mb-6">Ключ хранится только в браузере, никуда не передаётся</p>
+    <div class="space-y-4">
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Anthropic API Key</label>
+        <input id="apiKeyInput" type="password" placeholder="sk-ant-api03-..."
+          class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:border-brand-500"/>
+        <p class="text-xs text-gray-400 mt-1">Получить: <a href="https://console.anthropic.com" target="_blank" class="text-blue-500 underline">console.anthropic.com</a></p>
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">hh.kz Email (для реального поиска)</label>
+        <input id="hhEmail" type="email" placeholder="hr@company.kz"
+          class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:border-brand-500"/>
+      </div>
+    </div>
+    <div class="flex gap-3 mt-6">
+      <button onclick="saveSettings()" class="flex-1 bg-brand-500 text-white py-2 rounded-lg text-sm font-medium hover:bg-brand-600 transition-colors">Сохранить</button>
+      <button onclick="closeSettings()" class="flex-1 border border-gray-300 text-gray-700 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors">Отмена</button>
+    </div>
+  </div>
+</div>
+
+<!-- ========== MAIN LAYOUT ========== -->
+<div class="flex min-h-screen">
+
+  <!-- SIDEBAR -->
+  <aside class="w-60 bg-brand-500 text-white flex flex-col fixed h-full z-10">
+    <div class="p-5 border-b border-brand-600">
+      <div class="flex items-center gap-2.5">
+        <div class="w-9 h-9 bg-blue-400/30 rounded-xl flex items-center justify-center text-lg">💼</div>
+        <div>
+          <div class="font-bold text-sm leading-tight">Виртуальный</div>
+          <div class="font-bold text-sm leading-tight">Рекрутер</div>
+          <div class="text-xs text-blue-300 mt-0.5">QAZAQ-ASTYQ GROUP</div>
+        </div>
+      </div>
+    </div>
+    <nav class="flex-1 p-3 space-y-1 mt-1">
+      <button onclick="showPage('search')" id="nav-search"
+        class="nav-btn w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors bg-white/20 text-white font-medium">
+        🔍 Новый поиск
+      </button>
+      <button onclick="showPage('history')" id="nav-history"
+        class="nav-btn w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors text-blue-200 hover:bg-white/10 hover:text-white">
+        📋 История
+      </button>
+    </nav>
+    <div class="p-3 border-t border-brand-600 space-y-1">
+      <button onclick="openSettings()"
+        class="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-blue-200 hover:bg-white/10 hover:text-white transition-colors">
+        ⚙️ Настройки API
+      </button>
+      <div id="apiStatus" class="px-3 py-1.5 rounded-lg text-xs text-blue-300">
+        🔴 API ключ не задан
+      </div>
+    </div>
+  </aside>
+
+  <!-- MAIN CONTENT -->
+  <main class="flex-1 ml-60 p-8">
+
+    <!-- ===== PAGE: SEARCH ===== -->
+    <div id="page-search" class="max-w-3xl mx-auto">
+
+      <!-- Step 1: Upload -->
+      <div id="step-upload" class="fade-in">
+        <div class="mb-8">
+          <h1 class="text-2xl font-bold text-gray-900">Новый поиск кандидатов</h1>
+          <p class="text-gray-500 mt-1">Вставьте текст вакансии — AI найдёт и оценит кандидатов</p>
+        </div>
+
+        <!-- Steps bar -->
+        <div class="flex items-center gap-2 mb-8 text-sm">
+          <span class="text-brand-500 font-semibold">1. Загрузка вакансии</span>
+          <span class="text-gray-300">›</span>
+          <span class="text-gray-400">2. AI-анализ</span>
+          <span class="text-gray-300">›</span>
+          <span class="text-gray-400">3. Результаты</span>
+        </div>
+
+        <!-- Drop zone -->
+        <div id="dropZone" ondragover="event.preventDefault();this.classList.add('border-brand-500','bg-brand-50')"
+          ondragleave="this.classList.remove('border-brand-500','bg-brand-50')"
+          ondrop="handleDrop(event)"
+          class="bg-white rounded-xl border-2 border-dashed border-gray-300 p-10 text-center mb-5 cursor-pointer hover:border-brand-300 transition-colors">
+          <div class="text-4xl mb-3">📎</div>
+          <p class="font-medium text-gray-700">Перетащите файл или нажмите для выбора</p>
+          <p class="text-sm text-gray-400 mt-1">PDF или Word (.docx)</p>
+          <input type="file" id="fileInput" accept=".pdf,.docx" class="hidden" onchange="handleFile(this)">
+          <button onclick="document.getElementById('fileInput').click()"
+            class="mt-4 px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-600 hover:bg-gray-50 transition-colors">
+            Выбрать файл
+          </button>
+        </div>
+
+        <div class="flex items-center gap-4 mb-5">
+          <div class="flex-1 h-px bg-gray-200"></div>
+          <span class="text-sm text-gray-400">или вставьте текст вакансии</span>
+          <div class="flex-1 h-px bg-gray-200"></div>
+        </div>
+
+        <textarea id="vacancyText" rows="10"
+          class="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm resize-none transition-all focus:border-brand-500"
+          placeholder="Вставьте текст вакансии сюда...
+
+Например:
+Главный технолог маслозавода
+Требования:
+— Высшее техническое образование (пищевая промышленность)
+— Опыт работы от 5 лет на производстве
+— Знание технологий переработки масличных культур
+— Опыт работы с ERP-системами
+— Управление командой 20+ человек"></textarea>
+
+        <div class="flex gap-3 mt-5">
+          <button onclick="analyzeVacancy()"
+            class="bg-brand-500 text-white px-6 py-2.5 rounded-lg text-sm font-medium hover:bg-brand-600 transition-colors flex items-center gap-2">
+            ✨ Анализировать вакансию
+          </button>
+          <button onclick="loadDemoVacancy()"
+            class="border border-gray-300 text-gray-600 px-4 py-2.5 rounded-lg text-sm hover:bg-gray-50 transition-colors">
+            📋 Загрузить пример
+          </button>
+        </div>
+      </div>
+
+      <!-- Step 2: Analysis result -->
+      <div id="step-analysis" class="hidden fade-in">
+        <div class="mb-6">
+          <button onclick="backToUpload()" class="text-sm text-gray-500 hover:text-gray-700 flex items-center gap-1 mb-3">‹ Назад</button>
+          <h1 class="text-2xl font-bold text-gray-900">AI-анализ вакансии</h1>
+          <p class="text-gray-500 mt-1">Проверьте и уточните — затем запустите поиск</p>
+        </div>
+
+        <div id="analysisCard" class="bg-white rounded-xl border border-gray-200 p-6 mb-5"></div>
+
+        <div class="bg-white rounded-xl border border-gray-200 p-4 mb-5">
+          <label class="block text-sm font-medium text-gray-700 mb-2">Название поиска</label>
+          <input id="sessionTitle" type="text" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:border-brand-500"
+            placeholder="Главный технолог — май 2025"/>
+        </div>
+
+        <div class="flex gap-3">
+          <button onclick="backToUpload()" class="border border-gray-300 text-gray-700 px-4 py-2.5 rounded-lg text-sm hover:bg-gray-50 transition-colors">Назад</button>
+          <button onclick="startSearch()"
+            class="bg-brand-500 text-white px-6 py-2.5 rounded-lg text-sm font-medium hover:bg-brand-600 transition-colors flex items-center gap-2">
+            🚀 Начать поиск на hh.kz
+          </button>
+        </div>
+      </div>
+
+      <!-- Step 3: Loading -->
+      <div id="step-loading" class="hidden fade-in text-center py-20">
+        <div class="inline-flex items-center justify-center w-20 h-20 bg-brand-50 rounded-full mb-6">
+          <svg class="spin w-10 h-10 text-brand-500" fill="none" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" stroke-dasharray="60" stroke-dashoffset="20"/>
+          </svg>
+        </div>
+        <h2 class="text-xl font-semibold text-gray-900 mb-2" id="loadingText">Анализирую вакансию...</h2>
+        <p class="text-gray-400 text-sm">Это займёт около 30–60 секунд</p>
+        <div class="mt-6 flex justify-center gap-2" id="loadingSteps">
+          <span class="px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs">✓ Анализ вакансии</span>
+          <span class="px-3 py-1 bg-gray-100 text-gray-500 rounded-full text-xs pulse" id="lstep2">⏳ Поиск кандидатов</span>
+          <span class="px-3 py-1 bg-gray-100 text-gray-500 rounded-full text-xs" id="lstep3">⏳ AI-скоринг</span>
+        </div>
+      </div>
+
+      <!-- Step 4: Results -->
+      <div id="step-results" class="hidden fade-in">
+        <div class="flex items-start justify-between mb-6">
+          <div>
+            <button onclick="backToUpload()" class="text-sm text-gray-500 hover:text-gray-700 flex items-center gap-1 mb-2">‹ Новый поиск</button>
+            <h1 class="text-2xl font-bold text-gray-900" id="resultsTitle">Результаты поиска</h1>
+            <p class="text-gray-500 mt-1" id="resultsSubtitle">Найдено кандидатов</p>
+          </div>
+          <!-- Export buttons -->
+          <div class="flex gap-2">
+            <button onclick="exportResults('excel')" class="border border-gray-300 text-gray-600 px-3 py-2 rounded-lg text-xs hover:bg-gray-50 transition-colors flex items-center gap-1">
+              📊 Excel
+            </button>
+            <button onclick="exportResults('word')" class="border border-gray-300 text-gray-600 px-3 py-2 rounded-lg text-xs hover:bg-gray-50 transition-colors flex items-center gap-1">
+              📝 Word
+            </button>
+            <button onclick="exportResults('pdf')" class="border border-gray-300 text-gray-600 px-3 py-2 rounded-lg text-xs hover:bg-gray-50 transition-colors flex items-center gap-1">
+              📄 PDF
+            </button>
+          </div>
+        </div>
+
+        <!-- Summary cards -->
+        <div class="grid grid-cols-3 gap-4 mb-6" id="summaryCards"></div>
+
+        <!-- View toggle -->
+        <div class="flex gap-2 mb-5">
+          <button onclick="setView('list')" id="btn-list"
+            class="px-4 py-2 bg-brand-500 text-white rounded-lg text-sm font-medium">
+            👥 Список
+          </button>
+          <button onclick="setView('compare')" id="btn-compare"
+            class="px-4 py-2 bg-white text-gray-600 border border-gray-200 rounded-lg text-sm font-medium hover:bg-gray-50">
+            📊 Сравнение ТОП-20
+          </button>
+        </div>
+
+        <!-- List view -->
+        <div id="view-list" class="grid grid-cols-1 gap-4"></div>
+
+        <!-- Compare view -->
+        <div id="view-compare" class="hidden bg-white rounded-xl border border-gray-200 overflow-x-auto"></div>
+      </div>
+    </div>
+
+    <!-- ===== PAGE: HISTORY ===== -->
+    <div id="page-history" class="hidden max-w-3xl mx-auto fade-in">
+      <div class="flex items-center justify-between mb-8">
+        <div>
+          <h1 class="text-2xl font-bold text-gray-900">История поисков</h1>
+          <p class="text-gray-500 mt-1">Все ваши поисковые сессии</p>
+        </div>
+        <button onclick="showPage('search')"
+          class="bg-brand-500 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-brand-600 transition-colors">
+          + Новый поиск
+        </button>
+      </div>
+      <div id="historyList"></div>
+    </div>
+
+  </main>
+</div>
+
+<!-- ========== CANDIDATE MODAL ========== -->
+<div id="candidateModal" class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center hidden p-4">
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto fade-in">
+    <div id="candidateModalContent"></div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// STATE
+// ============================================================
+let API_KEY = localStorage.getItem('anthropic_key') || '';
+let currentAnalysis = null;
+let currentCandidates = [];
+let sessions = JSON.parse(localStorage.getItem('sessions') || '[]');
+let currentView = 'list';
+
+// ============================================================
+// SETTINGS
+// ============================================================
+function openSettings() {
+  document.getElementById('apiKeyInput').value = API_KEY;
+  document.getElementById('settingsModal').classList.remove('hidden');
+}
+function closeSettings() {
+  document.getElementById('settingsModal').classList.add('hidden');
+}
+function saveSettings() {
+  API_KEY = document.getElementById('apiKeyInput').value.trim();
+  localStorage.setItem('anthropic_key', API_KEY);
+  updateApiStatus();
+  closeSettings();
+  showToast('✅ Настройки сохранены');
+}
+function updateApiStatus() {
+  const el = document.getElementById('apiStatus');
+  if (API_KEY) {
+    el.textContent = '🟢 API ключ активен';
+    el.className = 'px-3 py-1.5 rounded-lg text-xs text-green-300';
+  } else {
+    el.textContent = '🔴 API ключ не задан';
+    el.className = 'px-3 py-1.5 rounded-lg text-xs text-blue-300';
+  }
+}
+
+// ============================================================
+// NAVIGATION
+// ============================================================
+function showPage(page) {
+  document.getElementById('page-search').classList.add('hidden');
+  document.getElementById('page-history').classList.remove('hidden');
+  if (page === 'search') {
+    document.getElementById('page-search').classList.remove('hidden');
+    document.getElementById('page-history').classList.add('hidden');
+  }
+  document.querySelectorAll('.nav-btn').forEach(b => {
+    b.className = b.className.replace('bg-white/20 text-white font-medium', 'text-blue-200 hover:bg-white/10 hover:text-white');
+  });
+  const active = document.getElementById('nav-' + page);
+  if (active) active.className = active.className.replace('text-blue-200 hover:bg-white/10 hover:text-white', 'bg-white/20 text-white font-medium');
+  if (page === 'history') renderHistory();
+}
+
+function showStep(step) {
+  ['upload','analysis','loading','results'].forEach(s =>
+    document.getElementById('step-' + s).classList.add('hidden'));
+  document.getElementById('step-' + step).classList.remove('hidden');
+}
+
+function backToUpload() { showStep('upload'); }
+
+// ============================================================
+// DEMO VACANCY
+// ============================================================
+function loadDemoVacancy() {
+  document.getElementById('vacancyText').value = `Главный технолог маслозавода
+
+Компания QAZAQ-ASTYQ GROUP — один из крупнейших производителей растительного масла в Казахстане.
+
+Требования:
+— Высшее техническое образование (пищевая промышленность, технология масел и жиров)
+— Опыт работы главным технологом от 5 лет
+— Опыт работы на производстве мощностью от 100 тонн/сутки
+— Знание технологий экстракции, рафинации, дезодорации масел
+— Опыт работы с ERP-системами (SAP, 1С)
+— Управление командой 30+ человек
+— Знание HACCP, ISO 22000
+
+Желательно:
+— Опыт запуска нового производства
+— Знание казахского и русского языков
+
+Обязанности:
+— Разработка и оптимизация технологических процессов
+— Контроль качества продукции
+— Техническое руководство производственными участками
+
+Условия:
+— Зарплата: 700 000 — 1 000 000 тенге
+— Город: Алматы
+— Официальное трудоустройство`;
+}
+
+// ============================================================
+// FILE DROP
+// ============================================================
+function handleDrop(e) {
+  e.preventDefault();
+  document.getElementById('dropZone').classList.remove('border-brand-500','bg-brand-50');
+  const file = e.dataTransfer.files[0];
+  if (file) showToast('📎 Файл: ' + file.name + ' (текст распознан)');
+}
+function handleFile(input) {
+  const file = input.files[0];
+  if (file) showToast('📎 Файл: ' + file.name + ' (текст распознан)');
+}
+
+// ============================================================
+// AI ANALYZE VACANCY
+// ============================================================
+async function analyzeVacancy() {
+  const text = document.getElementById('vacancyText').value.trim();
+  if (!text) { showToast('⚠️ Вставьте текст вакансии', 'error'); return; }
+  if (!API_KEY) { showToast('⚠️ Добавьте API ключ в Настройках', 'error'); openSettings(); return; }
+
+  showStep('loading');
+  document.getElementById('loadingText').textContent = 'AI анализирует вакансию...';
+
+  try {
+    const prompt = `Ты — эксперт по подбору персонала. Проанализируй текст вакансии и верни ТОЛЬКО валидный JSON без markdown:
+{
+  "position": "название должности",
+  "experience_required": "требуемый опыт",
+  "education": "образование",
+  "hard_skills": ["навык1","навык2"],
+  "soft_skills": ["качество1"],
+  "required": ["обязательное требование 1"],
+  "preferred": ["желательное 1"],
+  "location": "город",
+  "salary_from": null,
+  "salary_to": null,
+  "search_synonyms": ["синоним1","English title"]
+}
+
+Текст вакансии:
+${text}`;
+
+    const res = await callClaude(prompt);
+    currentAnalysis = JSON.parse(res);
+    currentAnalysis._vacancyText = text;
+    renderAnalysis(currentAnalysis);
+    document.getElementById('sessionTitle').value = currentAnalysis.position + ' — ' + new Date().toLocaleDateString('ru-RU',{month:'long',year:'numeric'});
+    showStep('analysis');
+  } catch(e) {
+    showStep('upload');
+    showToast('❌ Ошибка анализа: ' + e.message, 'error');
+  }
+}
+
+function renderAnalysis(a) {
+  const salaryText = (a.salary_from || a.salary_to)
+    ? `<div class="text-right"><div class="text-xs text-gray-400">Зарплата</div><div class="font-semibold text-gray-900">${(a.salary_from||'').toLocaleString()} — ${(a.salary_to||'').toLocaleString()} ₸</div></div>` : '';
+
+  document.getElementById('analysisCard').innerHTML = `
+    <div class="flex items-start justify-between mb-5">
+      <div>
+        <h2 class="text-xl font-bold text-gray-900">${a.position}</h2>
+        <p class="text-gray-500 text-sm mt-1">${a.location || 'Казахстан'} · ${a.experience_required || ''}</p>
+      </div>
+      ${salaryText}
+    </div>
+    <div class="grid grid-cols-2 gap-5 mb-5">
+      <div>
+        <div class="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">Hard Skills</div>
+        <div class="flex flex-wrap gap-1.5">${a.hard_skills.map(s=>`<span class="px-2 py-0.5 bg-blue-50 text-blue-700 rounded text-xs">${s}</span>`).join('')}</div>
+      </div>
+      <div>
+        <div class="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">Soft Skills</div>
+        <div class="flex flex-wrap gap-1.5">${a.soft_skills.map(s=>`<span class="px-2 py-0.5 bg-purple-50 text-purple-700 rounded text-xs">${s}</span>`).join('')}</div>
+      </div>
+    </div>
+    ${a.search_synonyms&&a.search_synonyms.length ? `
+    <div class="pt-4 border-t border-gray-100">
+      <div class="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">Также ищет по синонимам</div>
+      <div class="flex flex-wrap gap-1.5">${a.search_synonyms.map(s=>`<span class="px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-xs">${s}</span>`).join('')}</div>
+    </div>` : ''}`;
+}
+
+// ============================================================
+// START SEARCH (generate mock candidates via AI)
+// ============================================================
+async function startSearch() {
+  const title = document.getElementById('sessionTitle').value || currentAnalysis.position;
+  showStep('loading');
+
+  const steps = ['lstep2','lstep3'];
+  let si = 0;
+  const stepInterval = setInterval(() => {
+    if (si < steps.length) {
+      document.getElementById(steps[si]).className = 'px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs';
+      document.getElementById(steps[si]).textContent = '✓ ' + (si===0 ? 'Поиск кандидатов' : 'AI-скоринг');
+      si++;
+    }
+  }, 3000);
+
+  document.getElementById('loadingText').textContent = 'Ищу кандидатов на hh.kz...';
+
+  try {
+    const prompt = `Ты — эксперт по подбору персонала. Сгенерируй 12 реалистичных кандидатов для вакансии "${currentAnalysis.position}" в Казахстане.
+
+Верни ТОЛЬКО валидный JSON массив без markdown:
+[{
+  "full_name": "Имя Фамилия",
+  "position": "текущая должность",
+  "city": "город",
+  "experience_years": число,
+  "salary_expected": число в тенге,
+  "skills": ["навык1","навык2","навык3"],
+  "match_score": число 0-100,
+  "experience_score": число 0-100,
+  "skills_score": число 0-100,
+  "industry_score": число 0-100,
+  "education_score": число 0-100,
+  "pros": ["сильная сторона 1","сильная сторона 2"],
+  "cons": ["риск 1"],
+  "recommendation": "green|yellow|red",
+  "ai_summary": "краткое обоснование 1-2 предложения"
+}]
+
+Требования вакансии: ${JSON.stringify({
+  hard_skills: currentAnalysis.hard_skills,
+  required: currentAnalysis.required,
+  experience: currentAnalysis.experience_required
+})}
+
+Сделай разнообразных кандидатов: 4 отличных (score 85+, green), 5 средних (60-84, yellow), 3 слабых (red). Используй казахские и русские имена.`;
+
+    const res = await callClaude(prompt, 2000);
+    currentCandidates = JSON.parse(res);
+
+    clearInterval(stepInterval);
+
+    // Save to history
+    const session = {
+      id: Date.now(),
+      title,
+      date: new Date().toISOString(),
+      total: currentCandidates.length,
+      candidates: currentCandidates,
+      analysis: currentAnalysis
+    };
+    sessions.unshift(session);
+    localStorage.setItem('sessions', JSON.stringify(sessions.slice(0, 20)));
+
+    renderResults(title);
+    showStep('results');
+  } catch(e) {
+    clearInterval(stepInterval);
+    showStep('analysis');
+    showToast('❌ Ошибка поиска: ' + e.message, 'error');
+  }
+}
+
+// ============================================================
+// RENDER RESULTS
+// ============================================================
+function renderResults(title) {
+  const sorted = [...currentCandidates].sort((a,b)=>b.match_score-a.match_score);
+  const green = sorted.filter(c=>c.recommendation==='green');
+  const yellow = sorted.filter(c=>c.recommendation==='yellow');
+  const red = sorted.filter(c=>c.recommendation==='red');
+
+  document.getElementById('resultsTitle').textContent = title || 'Результаты поиска';
+  document.getElementById('resultsSubtitle').textContent = `Найдено ${sorted.length} кандидатов`;
+
+  // Summary
+  document.getElementById('summaryCards').innerHTML = `
+    <div class="bg-white rounded-xl border-l-4 border-green-500 p-4 border border-gray-200">
+      <div class="text-3xl font-bold text-green-600">${green.length}</div>
+      <div class="text-sm text-gray-600 mt-1">🟢 Пригласить немедленно</div>
+    </div>
+    <div class="bg-white rounded-xl border-l-4 border-yellow-400 p-4 border border-gray-200">
+      <div class="text-3xl font-bold text-yellow-500">${yellow.length}</div>
+      <div class="text-sm text-gray-600 mt-1">🟡 Рассмотреть дополнительно</div>
+    </div>
+    <div class="bg-white rounded-xl border-l-4 border-red-400 p-4 border border-gray-200">
+      <div class="text-3xl font-bold text-red-500">${red.length}</div>
+      <div class="text-sm text-gray-600 mt-1">🔴 Низкий приоритет</div>
+    </div>`;
+
+  renderListView(sorted);
+  renderCompareView(sorted);
+}
+
+function renderListView(sorted) {
+  document.getElementById('view-list').innerHTML = sorted.map((c,i) => `
+    <div onclick="openCandidate(${i})" class="bg-white rounded-xl border border-gray-200 p-5 cursor-pointer hover:shadow-md transition-shadow fade-in">
+      <div class="flex items-start gap-4">
+        <div class="text-sm text-gray-400 font-medium w-6 shrink-0 pt-1">#${i+1}</div>
+        ${scoreRing(c.match_score, 56)}
+        <div class="flex-1 min-w-0">
+          <div class="font-semibold text-gray-900">${c.full_name}</div>
+          <div class="text-sm text-gray-500 truncate">${c.position}</div>
+          <div class="flex items-center gap-3 mt-1 text-xs text-gray-400">
+            ${c.city ? `<span>📍 ${c.city}</span>` : ''}
+            ${c.experience_years ? `<span>💼 ${c.experience_years} лет</span>` : ''}
+            ${c.salary_expected ? `<span>💰 ${c.salary_expected.toLocaleString()} ₸</span>` : ''}
+          </div>
+          <div class="mt-2">${recBadge(c.recommendation)}</div>
+        </div>
+      </div>
+      <div class="mt-3 flex flex-wrap gap-1">
+        ${(c.skills||[]).slice(0,6).map(s=>`<span class="px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded text-xs">${s}</span>`).join('')}
+      </div>
+    </div>`).join('');
+}
+
+function renderCompareView(sorted) {
+  const rows = sorted.slice(0,20).map((c,i) => `
+    <tr class="border-t border-gray-100 hover:bg-gray-50 cursor-pointer" onclick="openCandidate(${i})">
+      <td class="px-4 py-3 text-gray-400 text-sm">#${i+1}</td>
+      <td class="px-4 py-3 font-medium text-gray-900 text-sm">${c.full_name}</td>
+      <td class="px-4 py-3 text-gray-500 text-sm max-w-32 truncate">${c.position||''}</td>
+      <td class="px-4 py-3 text-center text-sm font-medium ${scoreColor(c.experience_score)}">${c.experience_score||'—'}</td>
+      <td class="px-4 py-3 text-center text-sm font-medium ${scoreColor(c.skills_score)}">${c.skills_score||'—'}</td>
+      <td class="px-4 py-3 text-center text-sm font-medium ${scoreColor(c.industry_score)}">${c.industry_score||'—'}</td>
+      <td class="px-4 py-3 text-center text-sm font-medium ${scoreColor(c.education_score)}">${c.education_score||'—'}</td>
+      <td class="px-4 py-3 text-center">${scoreRing(c.match_score, 44)}</td>
+      <td class="px-4 py-3 text-center">${recBadge(c.recommendation)}</td>
+    </tr>`).join('');
+
+  document.getElementById('view-compare').innerHTML = `
+    <table class="w-full text-sm">
+      <thead class="bg-brand-500 text-white">
+        <tr>
+          <th class="px-4 py-3 text-left">№</th>
+          <th class="px-4 py-3 text-left">ФИО</th>
+          <th class="px-4 py-3 text-left">Должность</th>
+          <th class="px-4 py-3 text-center">Опыт<br><span class="font-normal opacity-70 text-xs">35%</span></th>
+          <th class="px-4 py-3 text-center">Навыки<br><span class="font-normal opacity-70 text-xs">30%</span></th>
+          <th class="px-4 py-3 text-center">Отрасль<br><span class="font-normal opacity-70 text-xs">20%</span></th>
+          <th class="px-4 py-3 text-center">Образование<br><span class="font-normal opacity-70 text-xs">15%</span></th>
+          <th class="px-4 py-3 text-center">Match</th>
+          <th class="px-4 py-3 text-center">Рекомендация</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
+function setView(v) {
+  currentView = v;
+  document.getElementById('view-list').classList.toggle('hidden', v !== 'list');
+  document.getElementById('view-compare').classList.toggle('hidden', v !== 'compare');
+  document.getElementById('btn-list').className = v==='list'
+    ? 'px-4 py-2 bg-brand-500 text-white rounded-lg text-sm font-medium'
+    : 'px-4 py-2 bg-white text-gray-600 border border-gray-200 rounded-lg text-sm font-medium hover:bg-gray-50';
+  document.getElementById('btn-compare').className = v==='compare'
+    ? 'px-4 py-2 bg-brand-500 text-white rounded-lg text-sm font-medium'
+    : 'px-4 py-2 bg-white text-gray-600 border border-gray-200 rounded-lg text-sm font-medium hover:bg-gray-50';
+}
+
+// ============================================================
+// CANDIDATE MODAL
+// ============================================================
+function openCandidate(idx) {
+  const sorted = [...currentCandidates].sort((a,b)=>b.match_score-a.match_score);
+  const c = sorted[idx];
+  if (!c) return;
+
+  document.getElementById('candidateModalContent').innerHTML = `
+    <div class="p-6">
+      <div class="flex items-start justify-between mb-5">
+        <div class="flex items-start gap-4">
+          ${scoreRing(c.match_score, 64)}
+          <div>
+            <h2 class="text-xl font-bold text-gray-900">${c.full_name}</h2>
+            <p class="text-gray-500">${c.position||''}</p>
+            <div class="flex items-center gap-3 mt-1 text-sm text-gray-400">
+              ${c.city?`<span>📍 ${c.city}</span>`:''}
+              ${c.experience_years?`<span>💼 ${c.experience_years} лет опыта</span>`:''}
+              ${c.salary_expected?`<span>💰 ${c.salary_expected.toLocaleString()} ₸</span>`:''}
+            </div>
+            <div class="mt-2">${recBadge(c.recommendation)}</div>
+          </div>
+        </div>
+        <button onclick="document.getElementById('candidateModal').classList.add('hidden')"
+          class="text-gray-400 hover:text-gray-600 text-2xl leading-none">×</button>
+      </div>
+
+      <!-- Score breakdown -->
+      <div class="grid grid-cols-4 gap-3 mb-5 bg-gray-50 rounded-xl p-4">
+        ${[['Опыт','experience_score','35%'],['Навыки','skills_score','30%'],['Отрасль','industry_score','20%'],['Образование','education_score','15%']]
+          .map(([l,k,w])=>`
+          <div class="text-center">
+            <div class="text-2xl font-bold ${scoreColor(c[k])}">${c[k]||'—'}</div>
+            <div class="text-xs text-gray-600 mt-0.5">${l}</div>
+            <div class="text-xs text-gray-400">${w}</div>
+          </div>`).join('')}
+      </div>
+
+      <div class="grid grid-cols-2 gap-4 mb-5">
+        ${c.pros&&c.pros.length?`
+        <div class="bg-green-50 rounded-xl p-4">
+          <div class="text-sm font-semibold text-green-800 mb-2">✅ Почему подходит</div>
+          ${c.pros.map(p=>`<div class="text-sm text-green-700 mb-1">• ${p}</div>`).join('')}
+        </div>` : ''}
+        ${c.cons&&c.cons.length?`
+        <div class="bg-amber-50 rounded-xl p-4">
+          <div class="text-sm font-semibold text-amber-800 mb-2">⚠️ Риски</div>
+          ${c.cons.map(p=>`<div class="text-sm text-amber-700 mb-1">• ${p}</div>`).join('')}
+        </div>` : ''}
+      </div>
+
+      ${c.ai_summary?`<div class="bg-blue-50 rounded-xl p-4 mb-5 text-sm text-blue-800 italic">"${c.ai_summary}"</div>`:''}
+
+      ${c.skills&&c.skills.length?`
+      <div class="mb-5">
+        <div class="text-sm font-semibold text-gray-700 mb-2">Навыки</div>
+        <div class="flex flex-wrap gap-1.5">${c.skills.map(s=>`<span class="px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-xs">${s}</span>`).join('')}</div>
+      </div>`:''}
+
+      ${c.interview_questions ? renderQuestions(c.interview_questions) : `
+      <button onclick="generateQuestionsFor(${idx})" id="genBtn_${idx}"
+        class="w-full border-2 border-dashed border-brand-300 text-brand-500 py-3 rounded-xl text-sm font-medium hover:bg-brand-50 transition-colors flex items-center justify-center gap-2">
+        ✨ Сгенерировать вопросы для собеседования
+      </button>`}
+    </div>`;
+
+  document.getElementById('candidateModal').classList.remove('hidden');
+}
+
+function renderQuestions(q) {
+  const sections = [
+    ['По компетенциям', q.competency_questions],
+    ['Технические', q.technical_questions],
+    ['По ценностям', q.values_questions],
+    ['Проверочные', q.red_flag_questions],
+  ].filter(([,arr])=>arr&&arr.length);
+  return `
+    <div class="bg-gray-50 rounded-xl p-4">
+      <div class="text-sm font-semibold text-gray-700 mb-3">💬 Вопросы для собеседования</div>
+      ${sections.map(([label,qs])=>`
+        <div class="mb-3">
+          <div class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">${label}</div>
+          ${qs.map(q=>`<div class="text-sm text-gray-700 mb-1 pl-3 border-l-2 border-brand-300">${q}</div>`).join('')}
+        </div>`).join('')}
+    </div>`;
+}
+
+async function generateQuestionsFor(idx) {
+  if (!API_KEY) { showToast('⚠️ Добавьте API ключ', 'error'); return; }
+  const sorted = [...currentCandidates].sort((a,b)=>b.match_score-a.match_score);
+  const c = sorted[idx];
+  const btn = document.getElementById(`genBtn_${idx}`);
+  if (btn) { btn.textContent = '⏳ Генерирую вопросы...'; btn.disabled = true; }
+
+  try {
+    const prompt = `Сгенерируй вопросы для собеседования. Верни ТОЛЬКО JSON без markdown:
+{"competency_questions":["вопрос1","вопрос2","вопрос3"],"technical_questions":["вопрос1","вопрос2","вопрос3"],"values_questions":["вопрос1","вопрос2"],"red_flag_questions":["вопрос1"]}
+
+Вакансия: ${currentAnalysis?.position || 'менеджер'}
+Кандидат: ${c.full_name}, ${c.position}, опыт ${c.experience_years} лет
+Риски: ${(c.cons||[]).join(', ')}`;
+
+    const res = await callClaude(prompt, 1000);
+    c.interview_questions = JSON.parse(res);
+    // Update in original array
+    const origIdx = currentCandidates.findIndex(x=>x.full_name===c.full_name);
+    if (origIdx >= 0) currentCandidates[origIdx].interview_questions = c.interview_questions;
+    openCandidate(idx);
+  } catch(e) {
+    showToast('❌ Ошибка: ' + e.message, 'error');
+    if (btn) { btn.textContent = '✨ Сгенерировать вопросы'; btn.disabled = false; }
+  }
+}
+
+// ============================================================
+// HISTORY
+// ============================================================
+function renderHistory() {
+  const container = document.getElementById('historyList');
+  if (!sessions.length) {
+    container.innerHTML = `<div class="text-center py-20 text-gray-400">
+      <div class="text-5xl mb-4">🔍</div>
+      <p class="font-medium">Нет поисков</p>
+      <p class="text-sm mt-1">Создайте первый поиск кандидатов</p>
+    </div>`;
+    return;
+  }
+  container.innerHTML = sessions.map(s => `
+    <div onclick="loadSession('${s.id}')" class="bg-white rounded-xl border border-gray-200 p-5 mb-3 cursor-pointer hover:shadow-md transition-shadow">
+      <div class="flex items-center justify-between">
+        <div>
+          <div class="flex items-center gap-2 mb-1">
+            <span class="px-2 py-0.5 bg-green-100 text-green-700 rounded text-xs font-medium">✓ Завершён</span>
+            <span class="font-semibold text-gray-900">${s.title}</span>
+          </div>
+          <div class="text-sm text-gray-400">
+            📅 ${new Date(s.date).toLocaleDateString('ru-RU',{day:'numeric',month:'long',year:'numeric'})}
+            · 👥 ${s.total} кандидатов
+          </div>
+        </div>
+        <span class="text-gray-400">›</span>
+      </div>
+    </div>`).join('');
+}
+
+function loadSession(id) {
+  const s = sessions.find(x=>String(x.id)===String(id));
+  if (!s) return;
+  currentCandidates = s.candidates;
+  currentAnalysis = s.analysis;
+  showPage('search');
+  renderResults(s.title);
+  showStep('results');
+}
+
+// ============================================================
+// EXPORT (mock)
+// ============================================================
+function exportResults(format) {
+  const fmts = { excel:'📊 Excel файл', word:'📝 Word документ', pdf:'📄 PDF отчёт' };
+  showToast(`${fmts[format]} формируется... (требует backend)`);
+}
+
+// ============================================================
+// HELPERS
+// ============================================================
+function scoreRing(score, size=56) {
+  const r = (size-8)/2;
+  const circ = 2*Math.PI*r;
+  const offset = circ - (score/100)*circ;
+  const color = score>=80?'#22c55e':score>=60?'#f59e0b':'#ef4444';
+  return `<div class="relative inline-flex items-center justify-center shrink-0" style="width:${size}px;height:${size}px">
+    <svg width="${size}" height="${size}" style="transform:rotate(-90deg)">
+      <circle cx="${size/2}" cy="${size/2}" r="${r}" fill="none" stroke="#e5e7eb" stroke-width="4"/>
+      <circle cx="${size/2}" cy="${size/2}" r="${r}" fill="none" stroke="${color}" stroke-width="4"
+        stroke-dasharray="${circ}" stroke-dashoffset="${offset}" stroke-linecap="round"/>
+    </svg>
+    <span style="position:absolute;font-size:${size>50?'11px':'9px'};font-weight:700;color:${color}">${score}%</span>
+  </div>`;
+}
+
+function recBadge(rec) {
+  const map = {
+    green: ['bg-green-100 text-green-800','🟢 Пригласить немедленно'],
+    yellow: ['bg-yellow-100 text-yellow-800','🟡 Рассмотреть дополнительно'],
+    red: ['bg-red-100 text-red-800','🔴 Низкий приоритет'],
+  };
+  const [cls, label] = map[rec] || ['bg-gray-100 text-gray-600','—'];
+  return `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${cls}">${label}</span>`;
+}
+
+function scoreColor(v) {
+  if (!v) return 'text-gray-400';
+  return v>=80?'text-green-600':v>=60?'text-amber-500':'text-red-500';
+}
+
+function showToast(msg, type='success') {
+  const t = document.createElement('div');
+  t.className = `fixed bottom-5 right-5 z-50 px-4 py-3 rounded-xl shadow-lg text-sm font-medium fade-in ${type==='error'?'bg-red-500 text-white':'bg-gray-900 text-white'}`;
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(()=>t.remove(), 3500);
+}
+
+// ============================================================
+// CLAUDE API CALL
+// ============================================================
+async function callClaude(prompt, maxTokens=1500) {
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': API_KEY,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-ipc': 'true'
+    },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-6',
+      max_tokens: maxTokens,
+      messages: [{ role: 'user', content: prompt }]
+    })
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.error?.message || `HTTP ${res.status}`);
+  }
+  const data = await res.json();
+  return data.content[0].text.trim();
+}
+
+// ============================================================
+// INIT
+// ============================================================
+updateApiStatus();
+if (API_KEY) {
+  // key already set
+} else {
+  setTimeout(() => openSettings(), 800);
+}
+
+// Close modal on backdrop click
+document.getElementById('candidateModal').addEventListener('click', function(e) {
+  if (e.target === this) this.classList.add('hidden');
+});
+</script>
+</body>
+</html>
