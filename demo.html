@@ -834,13 +834,11 @@ function showToast(msg, type='success') {
 // CLAUDE API CALL
 // ============================================================
 async function callClaude(prompt, maxTokens=1500) {
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
+  const res = await fetch('/api/claude', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'x-api-key': API_KEY,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-ipc': 'true'
     },
     body: JSON.stringify({
       model: 'claude-sonnet-4-6',
@@ -849,7 +847,7 @@ async function callClaude(prompt, maxTokens=1500) {
     })
   });
   if (!res.ok) {
-    const err = await res.json();
+    const err = await res.json().catch(() => ({}));
     throw new Error(err.error?.message || `HTTP ${res.status}`);
   }
   const data = await res.json();
