@@ -158,10 +158,6 @@ tailwind.config = {
             class="bg-brand-500 text-white px-6 py-2.5 rounded-lg text-sm font-medium hover:bg-brand-600 transition-colors flex items-center gap-2">
             ✨ Анализировать вакансию
           </button>
-          <button onclick="loadDemoVacancy()"
-            class="border border-gray-300 text-gray-600 px-4 py-2.5 rounded-lg text-sm hover:bg-gray-50 transition-colors">
-            📋 Загрузить пример
-          </button>
         </div>
       </div>
 
@@ -498,71 +494,74 @@ function renderAnalysis(a) {
 // START SEARCH — реальный hh.kz или AI-демо
 // ============================================================
 async function startSearch() {
+  // Требуем авторизацию hh.kz
+  if (!HH_COOKIE) {
+    showStep('analysis');
+    showToast('⚠️ Войдите в hh.kz в Настройках — без этого поиск невозможен', 'error');
+    setTimeout(() => openSettings(), 600);
+    return;
+  }
+
   const title = document.getElementById('sessionTitle').value || currentAnalysis.position;
   showStep('loading');
-
   setLoadingStep(0, 'pending'); setLoadingStep(1, 'pending');
   document.getElementById('loadingText').textContent = 'Ищу резюме на hh.kz...';
 
   try {
-    let rawResumes = [];
+    // ── ШАГ 1: ПОИСК НА hh.kz ──────────────────────────────
+    setLoadingStep(0, 'active');
+    const queries = [currentAnalysis.position, ...(currentAnalysis.search_synonyms || []).slice(0, 2)];
 
-    if (HH_COOKIE) {
-      // ── РЕАЛЬНЫЙ ПОИСК ──────────────────────────────────────
-      setLoadingStep(0, 'active');
-      const queries = [currentAnalysis.position, ...(currentAnalysis.search_synonyms || []).slice(0, 2)];
-      const r = await fetch('/api/hh-search', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          query: queries,
-          cookie: HH_COOKIE,
-          salary_from: currentAnalysis.salary_from || null,
-          area: '160',
-          limit: 20,
-        }),
-      });
-      const data = await r.json();
-      if (r.status === 401) {
-        // Session expired — clear and fall back to AI demo
-        HH_COOKIE = '';
-        localStorage.removeItem('hh_cookie');
-        showToast('⚠️ Сессия hh.kz истекла. Зайдите снова в Настройках.', 'error');
-      } else if (!r.ok) {
-        throw new Error(data.error || 'Ошибка поиска на hh.kz');
-      } else {
-        rawResumes = data.resumes || [];
-      }
-      setLoadingStep(0, 'done');
-    } else {
-      setLoadingStep(0, 'skip');
+    const r = await fetch('/api/hh-search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        query: queries,
+        cookie: HH_COOKIE,
+        salary_from: currentAnalysis.salary_from || null,
+        area: '160',
+        limit: 20,
+      }),
+    });
+    const data = await r.json();
+
+    if (r.status === 401) {
+      HH_COOKIE = '';
+      localStorage.removeItem('hh_cookie');
+      showStep('analysis');
+      showToast('⚠️ Сессия hh.kz истекла — войдите снова в Настройках', 'error');
+      setTimeout(() => openSettings(), 800);
+      return;
+    }
+    if (!r.ok) throw new Error(data.error || 'Ошибка поиска на hh.kz');
+
+    const rawResumes = data.resumes || [];
+    setLoadingStep(0, 'done');
+
+    if (rawResumes.length === 0) {
+      showStep('analysis');
+      showToast('😔 На hh.kz не найдено резюме по данному запросу. Попробуйте другую вакансию.', 'error');
+      return;
     }
 
-    // ── AI СКОРИНГ ──────────────────────────────────────────
+    // ── ШАГ 2: AI-СКОРИНГ ───────────────────────────────────
     setLoadingStep(1, 'active');
-    document.getElementById('loadingText').textContent =
-      rawResumes.length > 0 ? `AI оценивает ${rawResumes.length} кандидатов...` : 'AI генерирует демо-кандидатов...';
+    document.getElementById('loadingText').textContent = `AI оценивает ${rawResumes.length} кандидатов с hh.kz...`;
 
-    if (rawResumes.length > 0) {
-      currentCandidates = await scoreRealCandidates(rawResumes);
-    } else {
-      currentCandidates = await generateDemoCandidates();
-    }
-
+    currentCandidates = await scoreRealCandidates(rawResumes);
     setLoadingStep(1, 'done');
 
     const session = {
       id: Date.now(), title,
       date: new Date().toISOString(),
       total: currentCandidates.length,
-      isReal: rawResumes.length > 0,
       candidates: currentCandidates,
       analysis: currentAnalysis,
     };
     sessions.unshift(session);
     localStorage.setItem('sessions', JSON.stringify(sessions.slice(0, 20)));
 
-    renderResults(title, rawResumes.length > 0);
+    renderResults(title);
     showStep('results');
   } catch(e) {
     showStep('analysis');
@@ -625,38 +624,18 @@ rec: green(ms≥80), yellow(60-79), red(<60).`;
   });
 }
 
-async function generateDemoCandidates() {
-  const prompt = `Сгенерируй РОВНО 10 кандидатов для вакансии "${currentAnalysis.position}" в Казахстане.
-Верни ТОЛЬКО валидный JSON массив без markdown:
-[{"n":"Имя Фамилия","pos":"должность","city":"город","exp":5,"sal":600000,"skills":["навык1","навык2"],"ms":88,"es":90,"ss":85,"is":80,"edu":75,"pros":["плюс1","плюс2"],"cons":["минус1"],"rec":"green","sum":"1-2 предложения"}]
-Распределение: 3 green (ms≥85), 4 yellow (60-84), 3 red (<60).
-Требования: опыт ${currentAnalysis.experience_required}, навыки: ${(currentAnalysis.hard_skills||[]).slice(0,5).join(', ')}.
-Казахские и русские имена.`;
-
-  const raw = await callClaude(prompt, 4000);
-  return safeParseArray(raw).map(c => ({
-    full_name: c.n||c.full_name||'Кандидат', position: c.pos||c.position||'',
-    city: c.city||'', experience_years: c.exp||0, salary_expected: c.sal||0,
-    skills: c.skills||[], hh_url: null,
-    match_score: c.ms||0, experience_score: c.es||0, skills_score: c.ss||0,
-    industry_score: c.is||0, education_score: c.edu||0,
-    pros: c.pros||[], cons: c.cons||[], recommendation: c.rec||'yellow', ai_summary: c.sum||'',
-  }));
-}
 
 // ============================================================
 // RENDER RESULTS
 // ============================================================
-function renderResults(title, isReal=false) {
+function renderResults(title) {
   const sorted = [...currentCandidates].sort((a,b)=>b.match_score-a.match_score);
   const green = sorted.filter(c=>c.recommendation==='green');
   const yellow = sorted.filter(c=>c.recommendation==='yellow');
   const red = sorted.filter(c=>c.recommendation==='red');
 
   document.getElementById('resultsTitle').textContent = title || 'Результаты поиска';
-  const badge = isReal
-    ? '<span class="ml-2 px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs font-medium">🟢 Реальные кандидаты с hh.kz</span>'
-    : '<span class="ml-2 px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full text-xs font-medium">🤖 AI-демо</span>';
+  const badge = '<span class="ml-2 px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs font-medium">🟢 Реальные кандидаты с hh.kz</span>';
   document.getElementById('resultsSubtitle').innerHTML = `Найдено ${sorted.length} кандидатов ${badge}`;
 
   // Summary
