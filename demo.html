@@ -471,37 +471,38 @@ async function startSearch() {
   document.getElementById('loadingText').textContent = 'Ищу кандидатов на hh.kz...';
 
   try {
-    const prompt = `Ты — эксперт по подбору персонала. Сгенерируй 12 реалистичных кандидатов для вакансии "${currentAnalysis.position}" в Казахстане.
+    const prompt = `Ты — эксперт по подбору персонала. Сгенерируй РОВНО 10 кандидатов для вакансии "${currentAnalysis.position}" в Казахстане.
 
-Верни ТОЛЬКО валидный JSON массив без markdown:
-[{
-  "full_name": "Имя Фамилия",
-  "position": "текущая должность",
-  "city": "город",
-  "experience_years": число,
-  "salary_expected": число в тенге,
-  "skills": ["навык1","навык2","навык3"],
-  "match_score": число 0-100,
-  "experience_score": число 0-100,
-  "skills_score": число 0-100,
-  "industry_score": число 0-100,
-  "education_score": число 0-100,
-  "pros": ["сильная сторона 1","сильная сторона 2"],
-  "cons": ["риск 1"],
-  "recommendation": "green|yellow|red",
-  "ai_summary": "краткое обоснование 1-2 предложения"
-}]
+ВАЖНО: верни ТОЛЬКО валидный JSON массив, никакого текста до или после, никаких markdown блоков.
 
-Требования вакансии: ${JSON.stringify({
-  hard_skills: currentAnalysis.hard_skills,
-  required: currentAnalysis.required,
-  experience: currentAnalysis.experience_required
-})}
+Формат каждого объекта (строго такой, не добавляй лишних полей):
+[{"n":"Имя Фамилия","pos":"должность","city":"город","exp":5,"sal":600000,"skills":["навык1","навык2"],"ms":88,"es":90,"ss":85,"is":80,"edu":75,"pros":["плюс1","плюс2"],"cons":["минус1"],"rec":"green","sum":"1-2 предложения"}]
 
-Сделай разнообразных кандидатов: 4 отличных (score 85+, green), 5 средних (60-84, yellow), 3 слабых (red). Используй казахские и русские имена.`;
+Поля: n=имя, pos=должность, city=город, exp=лет опыта, sal=зарплата тенге, skills=навыки(макс 4), ms=match_score, es=experience_score, ss=skills_score, is=industry_score, edu=education_score, pros=плюсы(макс 2), cons=минусы(макс 1), rec=green|yellow|red, sum=краткое обоснование.
 
-    const res = await callClaude(prompt, 2000);
-    currentCandidates = JSON.parse(res);
+Распределение: 3 отличных (ms 85+, rec green), 4 средних (ms 60-84, rec yellow), 3 слабых (ms <60, rec red).
+Требования: опыт ${currentAnalysis.experience_required}, навыки: ${(currentAnalysis.hard_skills||[]).slice(0,5).join(', ')}.
+Используй казахские и русские имена.`;
+
+    const raw = await callClaude(prompt, 4000);
+    const parsed = JSON.parse(raw);
+    currentCandidates = parsed.map(c => ({
+      full_name:        c.n   || c.full_name   || 'Кандидат',
+      position:         c.pos || c.position    || '',
+      city:             c.city || '',
+      experience_years: c.exp || c.experience_years || 0,
+      salary_expected:  c.sal || c.salary_expected || 0,
+      skills:           c.skills || [],
+      match_score:      c.ms  || c.match_score      || 0,
+      experience_score: c.es  || c.experience_score  || 0,
+      skills_score:     c.ss  || c.skills_score      || 0,
+      industry_score:   c.is  || c.industry_score    || 0,
+      education_score:  c.edu || c.education_score   || 0,
+      pros:             c.pros || [],
+      cons:             c.cons || [],
+      recommendation:   c.rec || c.recommendation   || 'yellow',
+      ai_summary:       c.sum || c.ai_summary        || '',
+    }));
 
     clearInterval(stepInterval);
 
